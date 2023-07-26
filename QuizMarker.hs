@@ -207,21 +207,10 @@ parseChar =
    Should always succeed.
  -}
 whiteSpace :: Parser ()
-whiteSpace = Parser $ \s -> Just (whiteSpaceAux s, ())
-
-whiteSpaceAux :: String -> String
-whiteSpaceAux (x:xs)
-  | isSpace x = whiteSpaceAux xs
-  | otherwise = x:xs
-
-whiteSpace2 :: Parser ()
-whiteSpace2 = Parser $ \s -> do
+whiteSpace = Parser $ \s -> do
   case runParserPartial (parsePred isSpace) s of
     Just (s', matches) -> Just (s', ())
     Nothing -> Just (s, ())
-
- 
-
 
 {- parseBool either
    consumes "true" to produce True,
@@ -254,6 +243,7 @@ intAux :: (String, Int) -> (String, Int)
 intAux ((x:xs), acc)
   | isDigit x = intAux (xs, ((acc * 10) + (read [x])))
   | otherwise = (x:xs, acc)
+
 
 {- parseDouble is a parser that parses a number on the
    format:
