@@ -1,0 +1,16 @@
+name: Assignment2
+version: 1.0
+cabal-version: >= 1.12
+build-type: Simple
+license: AllRightsReserved
+stability: experimental
+x-ghc-framework-version: 8.0.2-8.9-3
+x-last-ide-version: HfM1.5.1
+Executable Assignment2
+  main-is: QuizMarker.hs
+  buildable: True
+  extensions: DoAndIfThenElse
+  build-depends:
+      base -any,
+      QuickCheck -any,
+      time -any
