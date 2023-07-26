@@ -162,7 +162,9 @@ parseWhile p =
    fail, `first ps` fails too.
  -}
 first :: [Parser a] -> Parser a
-first = error "TODO: implement first"
+first [] = abort
+first (p:ps) = p `orelse` (first ps)
+    
 
 {- peekChar is a parser that
    returns the first character
@@ -175,7 +177,12 @@ first = error "TODO: implement first"
      == Just ("bla",'b')
  -}
 peekChar :: Parser Char
-peekChar = error "TODO: implement peekChar"
+peekChar = 
+  Parser $ \s -> 
+    if (length s) > 0 then
+      Just (s, (head s))
+    else
+      Nothing
 
 {- parseChar is a parser that
    consumes (and returns) a single
@@ -188,14 +195,33 @@ peekChar = error "TODO: implement peekChar"
      == Just ("la",'b')
  -}
 parseChar :: Parser Char
-parseChar = error "TODO: implement parseChar"
+parseChar = 
+  Parser $ \s -> 
+    if (length s) > 0 then
+      Just ((tail s), (head s))
+    else
+      Nothing
 
 {- A parser that consumes all leading
    whitespace (as determined by isSpace).
    Should always succeed.
  -}
 whiteSpace :: Parser ()
-whiteSpace = error "TODO: implement whiteSpace"
+whiteSpace = Parser $ \s -> Just (whiteSpaceAux s, ())
+
+whiteSpaceAux :: String -> String
+whiteSpaceAux (x:xs)
+  | isSpace x = whiteSpaceAux xs
+  | otherwise = x:xs
+
+whiteSpace2 :: Parser ()
+whiteSpace2 = Parser $ \s -> do
+  case runParserPartial (parsePred isSpace) s of
+    Just (s', matches) -> Just (s', ())
+    Nothing -> Just (s, ())
+
+ 
+
 
 {- parseBool either
    consumes "true" to produce True,
@@ -203,14 +229,31 @@ whiteSpace = error "TODO: implement whiteSpace"
    or fails if unable.
  -}
 parseBool :: Parser Bool
-parseBool = error "TODO: implement parseBool"
+parseBool = Parser $ \s ->
+  if (take 4 s) == "true" then
+    Just (drop 4 s, True)
+  else if (take 5 s) == "false" then
+    Just (drop 5 s, False)
+  else
+    Nothing
 
 {- parsePositiveInt is a parser that parses a
    non-empty sequence of digits (0-9)
    into a number.
  -}
 parsePositiveInt :: Parser Int
-parsePositiveInt = error "TODO: implement parseInt"
+parsePositiveInt = Parser $ \s ->
+  do
+    let (s', n) = intAux (s, 0)
+    if s' == s then
+      Nothing
+    else
+      Just (s', n)
+
+intAux :: (String, Int) -> (String, Int)
+intAux ((x:xs), acc)
+  | isDigit x = intAux (xs, ((acc * 10) + (read [x])))
+  | otherwise = (x:xs, acc)
 
 {- parseDouble is a parser that parses a number on the
    format:
