@@ -212,6 +212,9 @@ whiteSpace = Parser $ \s -> do
     Just (s', matches) -> Just (s', ())
     Nothing -> Just (s, ())
 
+whiteSpace2 :: Parser ()
+whiteSpace2 = (parsePred isSpace) >>= \_ -> return ()
+
 {- parseBool either
    consumes "true" to produce True,
    consumes "false" to produce False,
@@ -243,7 +246,7 @@ intAux :: (String, Int) -> (String, Int)
 intAux ((x:xs), acc)
   | isDigit x = intAux (xs, ((acc * 10) + (read [x])))
   | otherwise = (x:xs, acc)
-
+-- can rewrite using parsePred
 
 {- parseDouble is a parser that parses a number on the
    format:
@@ -258,7 +261,22 @@ intAux ((x:xs), acc)
    We do not support such numbers.
  -}
 parseDouble :: Parser Double
-parseDouble = error "TODO: implement parseDouble"
+parseDouble = do
+  let sign = 1
+  -- check for neg
+  x <- peekChar
+  if x == '-' then
+    parseChar
+    sign = -1
+  
+  pre <- parsePred
+  let acc = sign * n
+
+  x <- peekChar
+  if x == '.' then
+    parseChar
+    sign = -1
+  
 
 {- `parseString` is a parser that consumes a quoted
    string delimited by " quotes, and returns it.
