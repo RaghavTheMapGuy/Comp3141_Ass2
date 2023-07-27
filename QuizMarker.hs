@@ -8,6 +8,7 @@ import Text.Read(readMaybe)
 import Data.Time.Format
 import Data.Time.Clock
 import Test.QuickCheck
+import Control.Monad (when)
 
 {- A `Parser a` consumes input (of type `String`),
    and can either fail (represented by returning `Nothing`)
@@ -233,20 +234,15 @@ parseBool = Parser $ \s ->
    non-empty sequence of digits (0-9)
    into a number.
  -}
-parsePositiveInt :: Parser Int
-parsePositiveInt = Parser $ \s ->
-  do
-    let (s', n) = intAux (s, 0)
-    if s' == s then
-      Nothing
-    else
-      Just (s', n)
 
-intAux :: (String, Int) -> (String, Int)
-intAux ((x:xs), acc)
-  | isDigit x = intAux (xs, ((acc * 10) + (read [x])))
-  | otherwise = (x:xs, acc)
--- can rewrite using parsePred
+parsePositiveInt :: Parser Int
+parsePositiveInt =
+  do
+    str <- parsePred isDigit
+    if str == "" then
+      Parser $ const Nothing
+    else
+      return $ read str
 
 {- parseDouble is a parser that parses a number on the
    format:
@@ -262,21 +258,43 @@ intAux ((x:xs), acc)
  -}
 parseDouble :: Parser Double
 parseDouble = do
-  let sign = 1
   -- check for neg
+  -- abstract away?
   x <- peekChar
-  if x == '-' then
-    parseChar
-    sign = -1
-  
-  pre <- parsePred
-  let acc = sign * n
+  sign <- if x == '-' 
+    then do
+      parseChar
+      return "-"
+    else do
+      return ""
 
-  x <- peekChar
-  if x == '.' then
-    parseChar
-    sign = -1
-  
+  pre <- parsePred isDigit
+  -- how do I use when here?
+  if (pre == "") then
+    Parser $ const Nothing
+  else
+    return ()
+  let str = sign++pre
+  return $ read str
+
+  -- x <- peekChar
+  -- if x == '.' then
+  --   parseChar
+  --   post <- parsePred isDigit
+  --   let str = sign++pre++"."++post
+  -- else
+  --   let str = sign++pre
+
+  -- return $ read str::Double
+
+-- keyword but doesnt fail
+safeKeyword :: String -> Parser String
+safeKeyword kw = do
+    s <- get
+    res <- keyword kw
+    case res of
+      Just x -> return x
+      Nothing -> Just (s, "") -- initial state + empty string
 
 {- `parseString` is a parser that consumes a quoted
    string delimited by " quotes, and returns it.
