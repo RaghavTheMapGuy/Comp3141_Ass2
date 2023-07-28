@@ -284,6 +284,7 @@ parseDouble = do
   let str = sign++pre++dec++post
   return $ read str
 
+-- doesnt fail
 consumeNextChar :: Char -> Parser String
 consumeNextChar c = do
   x <- peekChar
@@ -309,8 +310,9 @@ consumeNextChar c = do
    the string.
    For example:
 
-     runParser parseString "\"a\\\"b\""
-     Just "a\"b"
+    runParser parseString "\"a\\\"b\""
+    ['"', 'a', '\', '\', '\', '"', 'b', '"']
+    Just "a\"b"
 
    Hint: what does (readMaybe s)::Maybe String do?
          And how is that useful here?
@@ -318,7 +320,27 @@ consumeNextChar c = do
          does less than optimally useful?
  -}
 parseString :: Parser String
-parseString = error "TODO: implement parseString"
+parseString = do
+  keyword ['"']
+  parseRestOfString
+
+parseRestOfString :: Parser String
+parseRestOfString = do
+  -- go char by char
+  -- if curr char is \,
+  -- add next char without caring what it is
+  -- and dont add the initial \
+  -- if we hit a " we end
+  curr <- parseChar
+  if (curr == '"') then do
+    return ""
+  else if (curr == '\\') then do
+    next <- parseChar
+    rest <- parseRestOfString
+    return $ next : rest
+  else do
+    rest <- parseRestOfString
+    return $ curr : rest
 
 {- `parseList l r p` parses a
    comma-separated list that
