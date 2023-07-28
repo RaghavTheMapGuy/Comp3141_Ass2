@@ -234,7 +234,6 @@ parseBool = Parser $ \s ->
    non-empty sequence of digits (0-9)
    into a number.
  -}
-
 parsePositiveInt :: Parser Int
 parsePositiveInt =
   do
@@ -258,43 +257,42 @@ parsePositiveInt =
  -}
 parseDouble :: Parser Double
 parseDouble = do
+
   -- check for neg
-  -- abstract away?
-  x <- peekChar
-  sign <- if x == '-' 
-    then do
-      parseChar
-      return "-"
-    else do
-      return ""
+  sign <- consumeNextChar '-'
 
   pre <- parsePred isDigit
-  -- how do I use when here?
-  if (pre == "") then
+  -- read in digits before decimal
+  -- exit if no match
+  when (pre == "") $ do
     Parser $ const Nothing
-  else
-    return ()
-  let str = sign++pre
+
+  -- check for decimal
+  x <- peekChar
+  dec <- consumeNextChar '.'
+  -- if no decimal, return sign*pre
+  when (dec == "") $ do
+    let str = sign++pre
+    return $ read str
+  
+  post <- parsePred isDigit
+  -- read in digits after decimal
+  -- exit if no match
+  when (post == "") $ do
+    Parser $ const Nothing
+
+  let str = sign++pre++dec++post
   return $ read str
 
-  -- x <- peekChar
-  -- if x == '.' then
-  --   parseChar
-  --   post <- parsePred isDigit
-  --   let str = sign++pre++"."++post
-  -- else
-  --   let str = sign++pre
-
-  -- return $ read str::Double
-
--- keyword but doesnt fail
-safeKeyword :: String -> Parser String
-safeKeyword kw = do
-    s <- get
-    res <- keyword kw
-    case res of
-      Just x -> return x
-      Nothing -> Just (s, "") -- initial state + empty string
+consumeNextChar :: Char -> Parser String
+consumeNextChar c = do
+  x <- peekChar
+  if x == c 
+    then do
+      parseChar
+      return [c]
+    else do
+      return ""
 
 {- `parseString` is a parser that consumes a quoted
    string delimited by " quotes, and returns it.
