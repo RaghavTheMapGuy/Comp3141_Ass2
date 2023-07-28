@@ -185,6 +185,14 @@ peekChar =
     else
       Nothing
 
+safePeekChar :: Parser String
+safePeekChar = 
+  Parser $ \s -> 
+    if (length s) > 0 then
+      Just (s, [head s])
+    else
+      Just (s, "")
+
 {- parseChar is a parser that
    consumes (and returns) a single
    character, failing if there
@@ -258,37 +266,27 @@ parsePositiveInt =
 parseDouble :: Parser Double
 parseDouble = do
 
-  -- check for neg
   sign <- consumeNextChar '-'
 
   pre <- parsePred isDigit
-  -- read in digits before decimal
-  -- exit if no match
   when (pre == "") $ do
-    Parser $ const Nothing
+    abort
 
-  -- check for decimal
-  x <- peekChar
   dec <- consumeNextChar '.'
-  -- if no decimal, return sign*pre
-  when (dec == "") $ do
-    let str = sign++pre
-    return $ read str
   
-  post <- parsePred isDigit
-  -- read in digits after decimal
-  -- exit if no match
-  when (post == "") $ do
-    Parser $ const Nothing
+  if (dec == "") 
+    then do
+      let str = sign++pre
+      return $ (read str)
+    else do
+      post <- parsePred isDigit
+      let str = sign++pre++dec++post
+      return $ (read str) 
 
-  let str = sign++pre++dec++post
-  return $ read str
-
--- doesnt fail
 consumeNextChar :: Char -> Parser String
 consumeNextChar c = do
-  x <- peekChar
-  if x == c 
+  x <- safePeekChar
+  if x == [c]
     then do
       parseChar
       return [c]
@@ -368,8 +366,31 @@ parseRestOfString = do
    delimiters will be handy later.
  -}
 parseList :: Char -> Char -> Parser a -> Parser [a]
-parseList =
-  error "TODO: implement parseList"
+parseList l r elmP = do
+  keyword [l]
+  whiteSpace
+  peek <- peekChar
+  if (peek == r) then do
+    parseChar
+    return []
+  else do
+    parseRestOfList r elmP
+
+parseRestOfList :: Char -> Parser a -> Parser [a]
+parseRestOfList r elmP = do
+  whiteSpace
+  val <- elmP
+  whiteSpace
+
+  peek <- peekChar
+  if (peek == r) then do
+    parseChar
+    return [val]
+  else do
+    keyword ","
+    rest <- parseRestOfList r elmP
+    return $ val : rest
+
 
 {- `runParser s p` runs the parser p
    on input s.
