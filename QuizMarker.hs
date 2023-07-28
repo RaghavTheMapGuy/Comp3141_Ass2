@@ -257,8 +257,12 @@ parsePositiveInt =
     str <- parsePred isDigit
     if str == "" then
       Parser $ const Nothing
-    else
-      return $ read str
+    else do
+      let n = read str
+      if n == 0 then
+        Parser $ const Nothing
+      else
+        return $ read str
 
 {- parseDouble is a parser that parses a number on the
    format:
