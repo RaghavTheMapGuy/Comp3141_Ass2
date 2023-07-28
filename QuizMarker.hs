@@ -193,6 +193,15 @@ safePeekChar =
     else
       Just (s, "")
 
+safePeek2ndChar :: Parser String
+safePeek2ndChar = 
+  Parser $ \s -> 
+    if (length s) > 1 then
+      Just (s, [s !! 1])
+    else
+      Just (s, "")
+
+
 {- parseChar is a parser that
    consumes (and returns) a single
    character, failing if there
@@ -266,25 +275,27 @@ parsePositiveInt =
 parseDouble :: Parser Double
 parseDouble = do
 
-  sign <- consumeNextChar '-'
+  sign <- safeConsumeNextChar '-'
 
   pre <- parsePred isDigit
   when (pre == "") $ do
     abort
 
-  dec <- consumeNextChar '.'
-  
-  if (dec == "") 
+  dec <- safePeekChar
+  afterDec <- safePeek2ndChar
+
+  if (dec == "" || afterDec == "" || (not $ isDigit $ head afterDec)) 
     then do
       let str = sign++pre
       return $ (read str)
     else do
+      parseChar
       post <- parsePred isDigit
       let str = sign++pre++dec++post
       return $ (read str) 
 
-consumeNextChar :: Char -> Parser String
-consumeNextChar c = do
+safeConsumeNextChar :: Char -> Parser String
+safeConsumeNextChar c = do
   x <- safePeekChar
   if x == [c]
     then do
