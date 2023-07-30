@@ -666,27 +666,39 @@ getDataByKey key (JSON json) = do
   (k, v) <- find (\(k, v) -> k == key) json
   return v
 
-convertL1ToL2 :: [Data] -> Maybe [[Data]]
-convertL1ToL2 [] = Just []
-convertL1ToL2 (x:xs) = do 
-  curr <- getList x
-  rest <- convertL1ToL2 xs
+convertToList :: (a -> Maybe b) -> [a] -> Maybe [b]
+convertToList _ [] = Just []
+convertToList f (x:xs) = do
+  curr <- f x
+  rest <- convertToList f xs
   return $ curr : rest
+
+convertL1ToL2 :: [Data] -> Maybe [[Data]]
+convertL1ToL2 xs = convertToList getList xs
+
+-- convertL1ToL2 :: [Data] -> Maybe [[Data]]
+-- convertL1ToL2 [] = Just []
+-- convertL1ToL2 (x:xs) = do 
+--   curr <- getList x
+--   rest <- convertL1ToL2 xs
+--   return $ curr : rest
 
 convertL2toAnswers :: [[Data]] -> Maybe [[Int]]
-convertL2toAnswers [] = Just []
-convertL2toAnswers (l:ls) = do 
-  curr <- convertL2toAnswersAux l
-  rest <- convertL2toAnswers ls
-  return $ curr : rest
+convertL2toAnswers xs = convertToList convertL2toAnswersAux xs
+-- convertL2toAnswers [] = Just []
+-- convertL2toAnswers (l:ls) = do 
+--   curr <- convertL2toAnswersAux l
+--   rest <- convertL2toAnswers ls
+--   return $ curr : rest
 
 convertL2toAnswersAux :: [Data] -> Maybe [Int]
-convertL2toAnswersAux [] = Just []
-convertL2toAnswersAux (x:xs) = do 
-  curr <- getNumber x
-  currInt <- convertToPositiveInt curr
-  rest <- convertL2toAnswersAux xs
-  return $ currInt : rest
+convertL2toAnswersAux xs = convertToList (\x -> getNumber x >>= convertToPositiveInt) xs 
+
+-- convertL2toAnswersAux [] = Just []
+-- convertL2toAnswersAux (x:xs) = do 
+--   curr <- getNumber x >>= convertToPositiveInt
+--   rest <- convertL2toAnswersAux xs
+--   return $ curr : rest
 
 isWholeNumber :: Double -> Bool
 isWholeNumber x = snd (properFraction x) == 0
@@ -704,13 +716,12 @@ convertToPositiveInt dub
    more values that are not valid submissions.
  -}
  
-
--- TO DO : get it working with submission instead of json now
 toSubmissions :: JSON -> Maybe [(String, Submission)]
 toSubmissions (JSON json) = do
   subPairs <- convertElmsToSubPairs json
   return subPairs
 
+-- intentionally not condensed, would get more confusing
 convertElmsToSubPairs :: [(String, Data)] -> Maybe [(String, Submission)]
 convertElmsToSubPairs [] = Just []
 convertElmsToSubPairs (x:xs) = do  -- [(String,Data)]
