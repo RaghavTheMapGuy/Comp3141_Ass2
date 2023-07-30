@@ -9,6 +9,7 @@ import Data.Time.Format
 import Data.Time.Clock
 import Test.QuickCheck
 import Control.Monad (when)
+import Data.Maybe (fromMaybe)
 
 {- A `Parser a` consumes input (of type `String`),
    and can either fail (represented by returning `Nothing`)
@@ -288,7 +289,7 @@ parseDouble = do
   dec <- safePeekChar
   afterDec <- safePeek2ndChar
 
-  if (dec == "" || afterDec == "" || (not $ isDigit $ head afterDec)) 
+  if (dec /= "." || afterDec == "" || (not $ isDigit $ head afterDec)) 
     then do
       let str = sign++pre
       return $ (read str)
@@ -342,7 +343,7 @@ parseRestOfString = do
   -- go char by char
   -- if curr char is \,
   -- add next char without caring what it is
-  -- and dont add the initial \
+  -- and dont add the curr \
   -- if we hit a " we end
   curr <- parseChar
   if (curr == '"') then do
@@ -503,7 +504,25 @@ instance Arbitrary Data where
     function needs to be mutually recursive with parseData.
  -}
 parseJSON :: Parser JSON
-parseJSON = error "TODO: implement parseJSON"
+parseJSON = do
+  l <- parseList '{' '}' parseJSONElm
+  return $ JSON l
+  -- open { }
+  -- parseList of JSON elements
+  -- will take care of the , between elm
+
+
+parseJSONElm :: Parser (String,Data)
+parseJSONElm = do
+  -- parse string key
+  key <- parseString
+  -- parse `:`
+  whiteSpace
+  keyword ":"
+  whiteSpace
+  -- parse value
+  value <- parseData
+  return (key, value)
 
 {- A parser for JSON data values.
 
@@ -516,7 +535,15 @@ parseJSON = error "TODO: implement parseJSON"
     function needs to be mutually recursive with parseJSON.
  -}
 parseData :: Parser Data
-parseData = error "TODO: implement parseData"
+parseData = first [
+  fmap Number parseDouble,
+  fmap String parseString,
+  fmap List (parseList '[' ']' parseData),
+  fmap Bool parseBool,
+  fmap JSONData parseJSON
+  ]
+  `orelse` return Null
+
 
 {- Time strings are represented in the following format:
 
@@ -610,7 +637,64 @@ getJSON _ = Nothing
    Duplicates of other keys should be ignored.
  -}
 toSubmission :: JSON -> Maybe Submission
-toSubmission = error "TODO: implement toSubmission"
+-- JSON = JSON [(String, Data)]
+-- toSubmission = error "hi"
+--        session, quiz_name, student, answers,time
+toSubmission json = do
+  session <- (getDataByKey "session" json) >>= getString
+  quiz_name <- (getDataByKey "quiz_name" json) >>= getString
+  student <- (getDataByKey "student" json) >>= getString
+  time <- (getDataByKey "time" json) >>= getString >>= toTime
+
+  answersData <- (getDataByKey "answers" json) >>= getList -- [Data]
+  answersListData <- convertL1ToL2 answersData -- [[Data]]
+  answers <- convertL2toAnswers answersListData -- [[Int]]
+
+
+  let submission = Submission {
+    session = session,
+    quizName = quiz_name,
+    student = student,
+    answers = answers,
+    time = time}
+
+  return submission
+
+
+getDataByKey :: String -> JSON -> Maybe Data
+getDataByKey key (JSON json) = do
+  (k, v) <- find (\(k, v) -> k == key) json
+  return v
+
+convertL1ToL2 :: [Data] -> Maybe [[Data]]
+convertL1ToL2 [] = Just []
+convertL1ToL2 (x:xs) = do 
+  curr <- getList x
+  rest <- convertL1ToL2 xs
+  return $ curr : rest
+
+convertL2toAnswers :: [[Data]] -> Maybe [[Int]]
+convertL2toAnswers [] = Just []
+convertL2toAnswers (l:ls) = do 
+  curr <- convertL2toAnswersAux l
+  rest <- convertL2toAnswers ls
+  return $ curr : rest
+
+convertL2toAnswersAux :: [Data] -> Maybe [Int]
+convertL2toAnswersAux [] = Just []
+convertL2toAnswersAux (x:xs) = do 
+  curr <- getNumber x
+  currInt <- convertToPositiveInt curr
+  rest <- convertL2toAnswersAux xs
+  return $ currInt : rest
+
+isWholeNumber :: Double -> Bool
+isWholeNumber x = snd (properFraction x) == 0
+
+convertToPositiveInt :: Double -> Maybe Int
+convertToPositiveInt dub
+  | isWholeNumber dub && dub > 0 = Just (round dub)
+  | otherwise = Nothing
 
 {- This function should convert a JSON object
    to a key-value store where the values are
@@ -619,8 +703,32 @@ toSubmission = error "TODO: implement toSubmission"
    Should fail if the JSON object holds one or
    more values that are not valid submissions.
  -}
-toSubmissions :: JSON -> Maybe [(String,Submission)]
-toSubmissions = error "TODO: implement toResults"
+ 
+
+-- TO DO : get it working with submission instead of json now
+toSubmissions :: JSON -> Maybe [(String, Submission)]
+toSubmissions (JSON json) = do
+  subPairs <- convertElmsToSubPairs json
+  return subPairs
+
+convertElmsToSubPairs :: [(String, Data)] -> Maybe [(String, Submission)]
+convertElmsToSubPairs [] = Just []
+convertElmsToSubPairs (x:xs) = do  -- [(String,Data)]
+  sj <- convertElmToSubPair x -- [(String, JSON)]
+  ss <- handleSubmissionPair sj -- [(String, Submission)]
+  rest <- convertElmsToSubPairs xs
+  return $ ss : rest
+
+convertElmToSubPair :: (String, Data) -> Maybe (String, JSON)
+convertElmToSubPair (s, d) = do
+  j <- getJSON d
+  return (s, j)
+
+handleSubmissionPair :: (String, JSON) -> Maybe (String, Submission)
+handleSubmissionPair (key, json) = do
+  sub <- toSubmission json
+  return $ (key, sub)
+
 
 {- There are two kinds of questions:
    - multiple-choice, represented by CheckBox
@@ -780,3 +888,15 @@ runMarker quizFile submissionsFile = do
   case marker quiz submissions of
     Nothing -> putStrLn "Something went wrong. But this error message is not helpful!"
     Just output -> putStrLn output
+
+
+emptyJSON = JSON [("", Null)]
+
+jsonString1 = "{\"z1345678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Jean-Baptiste Bernadotte\",\"answers\":[[4],[2],[2],[1],[2],[1,2],[1,3],[1,2,3,4,5]],\"time\":\"2023-06-02 23:13:13\"},\"z2745678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Hrafna-Flóki Vilgerðarson\",\"answers\":[[1],[],[1]],\"time\":\"2023-06-02 12:16:52\"}}"
+json1 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON jsonString1)
+
+subJsonString1 = "{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Jean-Baptiste Bernadotte\",\"answers\":[[4],[2],[2],[1],[2],[1,2],[1,3],[1,2,3,4,5]],\"time\":\"2023-06-02 23:13:13\"}"
+subJson1 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON subJsonString1)
+
+jsonString2 = "{\"type\": \"minecraft:crafting_shaped\",\"pattern\": [\"X\",\"#\"],\"key\": {\"#\": {\"item\": \"minecraft:granite\"},\"X\": {\"item\": \"minecraft:stick\"}},\"result\": {\"item\": \"examplemod:remote_lever_block\"}}"
+json2 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON jsonString2)
