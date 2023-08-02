@@ -8,8 +8,12 @@ import Text.Read(readMaybe)
 import Data.Time.Format
 import Data.Time.Clock
 import Test.QuickCheck
-import Control.Monad (when)
-import Data.Maybe (fromMaybe)
+import Control.Monad (when, guard)
+import Data.Maybe (fromMaybe, fromJust)
+
+import Numeric (showFFloat)
+import Data.Bifunctor (second)
+import Data.List(intercalate)
 
 {- A `Parser a` consumes input (of type `String`),
    and can either fail (represented by returning `Nothing`)
@@ -325,7 +329,7 @@ safeConsumeNextChar c = do
    For example:
 
     runParser parseString "\"a\\\"b\""
-    ['"', 'a', '\', '\', '\', '"', 'b', '"']
+    ['"', 'a', '\"', 'b', '"']
     Just "a\"b"
 
    Hint: what does (readMaybe s)::Maybe String do?
@@ -333,10 +337,26 @@ safeConsumeNextChar c = do
          And how is what (readMaybe "[]")::Maybe String
          does less than optimally useful?
  -}
+
 parseString :: Parser String
 parseString = do
+  str <- least readMaybeResult
+  when ((head str) /= '"' || (last str) /= '"') abort
+  try $ readMaybe str
+
+readMaybeResult :: String -> Bool
+readMaybeResult s =
+  case readMaybe s :: Maybe String of
+    Just a -> True
+    Nothing -> False
+
+
+-- doesnt work for edge cases eg \n
+parseString2 :: Parser String
+parseString2 = do
   keyword ['"']
-  parseRestOfString
+  rest <- parseRestOfString
+  return $ '"' : rest
 
 parseRestOfString :: Parser String
 parseRestOfString = do
@@ -540,9 +560,14 @@ parseData = first [
   fmap String parseString,
   fmap List (parseList '[' ']' parseData),
   fmap Bool parseBool,
-  fmap JSONData parseJSON
+  fmap JSONData parseJSON,
+  parseNull
   ]
-  `orelse` return Null
+
+parseNull :: Parser Data
+parseNull = do
+  keyword "null"
+  return Null
 
 
 {- Time strings are represented in the following format:
@@ -554,6 +579,8 @@ parseData = first [
  -}
 toTime :: String -> Maybe UTCTime
 toTime = parseTimeM True defaultTimeLocale "%F %X"
+
+
 
 {- A quiz submission consists of:
 
@@ -651,15 +678,13 @@ toSubmission json = do
   answers <- convertL2toAnswers answersListData -- [[Int]]
 
 
-  let submission = Submission {
+  return Submission {
     session = session,
     quizName = quiz_name,
     student = student,
     answers = answers,
-    time = time}
-
-  return submission
-
+    time = time
+  }
 
 getDataByKey :: String -> JSON -> Maybe Data
 getDataByKey key (JSON json) = do
@@ -819,7 +844,82 @@ instance Arbitrary Quiz where
    and there must be at least one answer.
  -}
 parseQuiz :: Parser Quiz
-parseQuiz = error "TODO: implement parseQuiz"
+-- -- parseQuiz = error "TODO: implement parseQuiz"
+-- -- parse time
+-- -- parse questions, making sure they're matching their required number
+parseQuiz = do
+  firstLine <- parsePred (\c -> c /= '\n')
+  time <- try $ toTime firstLine
+  parseChar -- consume newline
+
+  questions <- parseQuestions
+  -- condition 1: consecutive qs starting from 1
+  questions' <- if (checkQuestions questions 1) then do
+    return questions
+  else
+    -- error ("failed checkQuestions\n" ++ (show questions))
+    abort
+
+  return Quiz {
+    deadline = time,
+    questions = questions'
+  }
+
+parseQuestions :: Parser [Question]
+parseQuestions = do
+  peek <- safePeekChar
+  if (peek == "") then do -- EOF
+    return []
+  else do
+    q <- parseQuestion
+    rest <- parseQuestions
+    return $ q : rest
+
+parseQuestion :: Parser Question
+parseQuestion = do
+  qn <- parsePositiveInt
+  keyword "|"
+
+  -- condition 2: radio | checkbox
+  qtype <- ((keyword "radio") >>= \_ -> return Radio) 
+    `orelse` ((keyword "checkbox") >>= \_ -> return CheckBox)
+  keyword "|"
+
+  -- condition 3: at least 1 correct answer
+  correct <- parseCorrect
+  correct' <- if length correct > 0
+    then return correct
+    else abort 
+
+  return Question {
+    number = qn,
+    qtype = qtype,
+    correct = correct'
+  }
+
+parseCorrect :: Parser [Int]
+parseCorrect = do
+  ans <- parsePositiveInt
+  peek <- safePeekChar
+  peek2 <- safePeek2ndChar
+  if (peek == "") then do -- EOF
+    return [ans]
+  else if (peek == "\n") then do -- end of line
+    parseChar
+    return [ans]
+  else if (peek == "," && peek2 == " ") then do -- more answers
+    parseChar -- consume ','
+    parseChar -- consume ' ', assuming exactly 1 space
+    rest <- parseCorrect
+    return $ ans : rest
+  else
+    -- error ("saw something unexpected: '" ++ peek ++ "'")
+    abort
+
+
+checkQuestions :: [Question] -> Int -> Bool
+checkQuestions [] _ = True
+checkQuestions (q:qs) n = ((number q) == n) && checkQuestions qs (n+1)
 
 {- And now for the business logic!
 
@@ -850,7 +950,36 @@ parseQuiz = error "TODO: implement parseQuiz"
      for purposes of the above tally.
  -}
 markQuestion :: Question -> [Int] -> Double
-markQuestion = error "TODO: implement markQuestion"
+-- markQuestion = error "TODO: implement markQuestion"
+markQuestion q as = 
+  case qtype q of
+    Radio -> markRadio q as
+    CheckBox -> markCheckBox q as  
+  
+markRadio :: Question -> [Int] -> Double
+markRadio q as
+  | oneAnswer && correctAnswer = 1
+  | otherwise = 0
+  where
+    uniqAs = nub as
+    oneAnswer = (length uniqAs == 1)
+    correctAnswer = elem (head uniqAs) (correct q)
+
+markCheckBox :: Question -> [Int] -> Double
+markCheckBox q as = max 0 ((right - wrong) / lenCorrAns)
+  where
+    corrAns = nub (correct q)
+    studAns = nub as
+    lenCorrAns = fromIntegral $ length corrAns
+
+    right = fromIntegral $ length $ filter (\a -> (elem a corrAns)) studAns
+    wrong = fromIntegral $ length $ filter (\a -> not (elem a corrAns)) studAns
+
+
+qr = Question {number = 1, qtype = Radio, correct = [1,2,3]}
+qc = Question {number = 1, qtype = CheckBox, correct = [1,2,3]}
+as1 :: [Int] = [1]
+as2 :: [Int] = [1,2]
 
 {- The mark assigned to a quiz submission is:
    - 0 if submitted after the deadline.
@@ -858,7 +987,21 @@ markQuestion = error "TODO: implement markQuestion"
      if submitted at or before the deadline.
  -}
 markSubmission :: Quiz -> Submission -> Double
-markSubmission = error "TODO: implement marker"
+-- markSubmission = error "TODO: implement marker"
+markSubmission quiz submission = 
+  if deadl > subTime 
+    then markQuestions qs ass   -- valid submission
+    else 0                      -- late
+  where
+    deadl = deadline quiz
+    subTime = time submission
+    qs = questions quiz
+    ass = answers submission
+
+markQuestions :: [Question] -> [[Int]] -> Double
+markQuestions _ [] = 0
+markQuestions [] _ = 0
+markQuestions (q:qs) (as:ass) = (markQuestion q as) + (markQuestions qs ass)
 
 {- `marker quizStr submissionsStr`
    combines the parsers and business logic as follows:
@@ -885,6 +1028,9 @@ markSubmission = error "TODO: implement marker"
  -}
 marker :: String -> String -> Maybe String
 marker = error "TODO: implement marker"
+-- marker quizStr submissionsStr = do
+
+
 
 {- Use this to read a quiz key and submissions
    file from the file system, and print the
@@ -901,6 +1047,15 @@ runMarker quizFile submissionsFile = do
     Just output -> putStrLn output
 
 
+
+
+
+
+
+--- testing
+
+
+
 emptyJSON = JSON [("", Null)]
 
 jsonString1 = "{\"z1345678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Jean-Baptiste Bernadotte\",\"answers\":[[4],[2],[2],[1],[2],[1,2],[1,3],[1,2,3,4,5]],\"time\":\"2023-06-02 23:13:13\"},\"z2745678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Hrafna-Flóki Vilgerðarson\",\"answers\":[[1],[],[1]],\"time\":\"2023-06-02 12:16:52\"}}"
@@ -911,3 +1066,84 @@ subJson1 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON subJsonSt
 
 jsonString2 = "{\"type\": \"minecraft:crafting_shaped\",\"pattern\": [\"X\",\"#\"],\"key\": {\"#\": {\"item\": \"minecraft:granite\"},\"X\": {\"item\": \"minecraft:stick\"}},\"result\": {\"item\": \"examplemod:remote_lever_block\"}}"
 json2 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON jsonString2)
+
+
+testMyProperty :: IO ()
+testMyProperty = do
+    xs <- readFile "quiz1.txt"
+    (str, quiz) <- try2 $ runParserPartial parseQuiz xs
+    putStrLn $ show quiz
+
+
+try2 :: Maybe a -> IO a
+try2 Nothing  = error "Encountered a Nothing value."
+try2 (Just a) = return a
+
+
+
+-- Unit tests (stolen from forum)
+-- Task 2
+prop_parseDataWorks :: Data -> Bool
+prop_parseDataWorks d = runParser parseData (dataToStr d) == Just d
+
+prop_parseJSONWorks :: JSON -> Bool
+prop_parseJSONWorks j = runParser parseJSON (jsonToStr j) == Just j
+
+-- Task 3
+prop_toSubmissionWorks :: Submission -> Bool
+prop_toSubmissionWorks s = toSubmission (submissionToJSON s) == Just s
+
+prop_toSubmissionsWorks :: [(String, Submission)] -> Bool
+prop_toSubmissionsWorks ss = toSubmissions (submissionsToJSON ss) == Just ss
+
+-- Task 4
+prop_parseQuizWorks :: Quiz -> Property
+prop_parseQuizWorks q = not (null (questions q)) ==>
+  runParser parseQuiz (quizToStr q) == Just q
+
+(Just t) = (toTime "1858-11-19 13:27:44")
+quiz = Quiz {deadline = t, questions = [Question {number = 1, qtype = CheckBox, correct = [2,2]}]}
+
+-- Task 5 (may be very slow)
+prop_markerSucceeds :: Quiz -> [(String, Submission)] -> Property
+prop_markerSucceeds q ss = not (null (questions q)) ==>
+  isJust (marker (quizToStr q) (jsonToStr (submissionsToJSON ss)))
+
+-- Helper functions for converting from parsed data to unparsed format
+jsonToStr :: JSON -> String
+jsonToStr (JSON j) = "{" ++ intercalate ", " (map keyValuePairToStr j) ++ "}"
+
+keyValuePairToStr :: (String, Data) -> String
+keyValuePairToStr (k, v) = show k ++ ": " ++ dataToStr v
+
+dataToStr :: Data -> String
+dataToStr (Number n) = showFFloat Nothing n ""
+dataToStr (String s) = show s
+dataToStr (List l) = "[" ++ intercalate ", " (map dataToStr l) ++ "]"
+dataToStr (Bool b) = if b then "true" else "false"
+dataToStr Null = "null"
+dataToStr (JSONData j) = jsonToStr j
+
+submissionToJSON :: Submission -> JSON
+submissionToJSON (Submission se q st a t) = JSON
+  [("session", String se),
+   ("quiz_name", String q),
+   ("student", String st),
+   ("answers", List $ map (List . map (Number . fromIntegral)) a),
+   ("time", String $ timeToStr t)]
+
+submissionsToJSON :: [(String, Submission)] -> JSON
+submissionsToJSON ss = JSON $ map (second (JSONData . submissionToJSON)) ss
+
+timeToStr :: UTCTime -> String
+timeToStr = unwords . take 2 . words . show -- drops tz
+
+quizToStr :: Quiz -> String
+quizToStr (Quiz d qs) =
+  unlines $ timeToStr d : map questionToStr qs
+
+questionToStr :: Question -> String
+questionToStr (Question n t cs) =
+  show n ++ "|" ++
+  (if t == Radio then "radio" else "checkbox") ++ "|" ++
+  intercalate ", " (map show cs)
