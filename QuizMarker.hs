@@ -525,6 +525,7 @@ instance Arbitrary Data where
  -}
 parseJSON :: Parser JSON
 parseJSON = do
+  whiteSpace
   l <- parseList '{' '}' parseJSONElm
   return $ JSON l
   -- open { }
@@ -543,6 +544,7 @@ parseJSONElm = do
   whiteSpace
   -- parse value
   value <- parseData
+  whiteSpace
   return (key, value)
 
 {- A parser for JSON data values.
@@ -845,7 +847,6 @@ instance Arbitrary Quiz where
    and there must be at least one answer.
  -}
 parseQuiz :: Parser Quiz
--- -- parseQuiz = error "TODO: implement parseQuiz"
 -- -- parse time
 -- -- parse questions, making sure they're matching their required number
 parseQuiz = do
@@ -853,12 +854,12 @@ parseQuiz = do
   time <- try $ toTime firstLine
   parseChar -- consume newline
 
-  questions <- parseQuestions
+  questions <- parseQuestions 1
   -- condition 1: consecutive qs starting from 1
   questions' <- if (checkQuestions questions 1) then do
     return questions
   else
-    -- error ("failed checkQuestions\n" ++ (show questions))
+    error ("failed checkQuestions\n" ++ (show questions))
     abort
 
   return Quiz {
@@ -866,18 +867,24 @@ parseQuiz = do
     questions = questions'
   }
 
-parseQuestions :: Parser [Question]
-parseQuestions = do
+-- parseQuestions2 :: Parser [Question]
+-- parseQuestions2 = parseWhile parseQuestion
+
+parseQuestions :: Int -> Parser [Question]
+parseQuestions number = do
   peek <- safePeekChar
   if (peek == "") then do -- EOF
     return []
   else do
-    q <- parseQuestion
-    rest <- parseQuestions
+    q <- parseQuestion number
+    rest <- parseQuestions (number+1) `orelse` (return [])
     return $ q : rest
 
-parseQuestion :: Parser Question
-parseQuestion = do
+parseQuestion :: Int -> Parser Question
+parseQuestion number = do
+  peek <- peekChar
+  when ([peek] /= (show number)) abort
+
   qn <- parsePositiveInt
   keyword "|"
 
@@ -898,6 +905,7 @@ parseQuestion = do
     correct = correct'
   }
 
+
 parseCorrect :: Parser [Int]
 parseCorrect = do
   ans <- parsePositiveInt
@@ -914,7 +922,7 @@ parseCorrect = do
     rest <- parseCorrect
     return $ ans : rest
   else
-    -- error ("saw something unexpected: '" ++ peek ++ "'")
+    error ("saw something unexpected: '" ++ peek ++ "'")
     abort
 
 
@@ -930,7 +938,7 @@ checkQuestions (q:qs) n = ((number q) == n) && checkQuestions qs (n+1)
 
    - If the question is single-choice,
      give 1 mark if the student supplied
-     exactly one answer, which is also
+     exactly one *unique* answer, which is also
      correct.
    - If the question is multiple-choice,
      give marks according to the
@@ -951,7 +959,7 @@ checkQuestions (q:qs) n = ((number q) == n) && checkQuestions qs (n+1)
      for purposes of the above tally.
  -}
 markQuestion :: Question -> [Int] -> Double
--- markQuestion = error "TODO: implement markQuestion"
+
 markQuestion q as = 
   case qtype q of
     Radio -> markRadio q as
@@ -1032,7 +1040,7 @@ marker :: String -> String -> Maybe String
 marker quizStr submissionsStr = do
   quiz <- runParser parseQuiz quizStr
   submissions <- (runParser parseJSON submissionsStr) >>= toSubmissions
-  makeUpdateFile quiz submissions
+  fmap trim (makeUpdateFile quiz submissions)
 
 makeUpdateFile :: Quiz -> [(String, Submission)] -> Maybe String
 makeUpdateFile quiz [] = return ""
@@ -1042,7 +1050,10 @@ makeUpdateFile quiz ((zid, sub):submissions) = do
   rest <- makeUpdateFile quiz submissions
   return $ (zid ++ "|" ++ quizNum ++ "|" ++ (show mark) ++ "\n" ) ++ rest
 
-
+-- source: 
+trim :: String -> String
+trim = f . f
+   where f = reverse . dropWhile isSpace
 
   -- zid from submission
   -- quizNum from submission
@@ -1063,37 +1074,17 @@ runMarker quizFile submissionsFile = do
     Just output -> putStrLn output
 
 
-
-
-
-
-
---- testing
-
-
-
-emptyJSON = JSON [("", Null)]
-
-jsonString1 = "{\"z1345678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Jean-Baptiste Bernadotte\",\"answers\":[[4],[2],[2],[1],[2],[1,2],[1,3],[1,2,3,4,5]],\"time\":\"2023-06-02 23:13:13\"},\"z2745678\":{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Hrafna-Flóki Vilgerðarson\",\"answers\":[[1],[],[1]],\"time\":\"2023-06-02 12:16:52\"}}"
-json1 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON jsonString1)
-
-subJsonString1 = "{\"session\":\"23T2\",\"quiz_name\":\"quiz01\",\"student\":\"Jean-Baptiste Bernadotte\",\"answers\":[[4],[2],[2],[1],[2],[1,2],[1,3],[1,2,3,4,5]],\"time\":\"2023-06-02 23:13:13\"}"
-subJson1 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON subJsonString1)
-
-jsonString2 = "{\"type\": \"minecraft:crafting_shaped\",\"pattern\": [\"X\",\"#\"],\"key\": {\"#\": {\"item\": \"minecraft:granite\"},\"X\": {\"item\": \"minecraft:stick\"}},\"result\": {\"item\": \"examplemod:remote_lever_block\"}}"
-json2 = snd $ fromMaybe ("", emptyJSON) (runParserPartial parseJSON jsonString2)
-
-
-testMyProperty :: IO ()
-testMyProperty = do
-    xs <- readFile "quiz1.txt"
-    (str, quiz) <- try2 $ runParserPartial parseQuiz xs
-    putStrLn $ show quiz
-
+raghavTestMarker :: IO ()
+raghavTestMarker = do
+    quiz <- readFile "quiz1.txt"
+    submissions <- readFile "submissions1.txt"
+    upload <- readFile "upload1.txt"
+    output <- try2 $ marker quiz submissions
+    putStrLn $ show (upload == output)
 
 try2 :: Maybe a -> IO a
-try2 Nothing  = error "Encountered a Nothing value."
 try2 (Just a) = return a
+try2 Nothing  = error "Encountered a Nothing value."
 
 
 

@@ -1,0 +1,31 @@
+{"z0000001":
+    {"session":"23T2",
+    "quiz_name":"quiz01",
+    "student":"Super Nerd Daniel",
+    "answers":[[1],[1],[1],[1]],
+    "time":"2023-01-01 23:13:13"},
+ "z0000002":
+    {"session":"23T2",
+    "quiz_name":"quiz01",
+    "student":"Random.exe (didn't answer some questions)",
+    "answers":[[1],[],[1],[]],
+    "time":"2023-01-01 10:00:00"},
+ "z0000003":
+    {"session":"23T2",
+    "quiz_name":"quiz01",
+    "student":"Super Nerd Franco (answered an extra question, dupe answers in some qs)",
+    "answers":[[1],[2,2],[1],[1,1,2,3],[10]],
+    "time":"2022-12-01 10:00:00"},
+ "z0000004":
+    {"session":"23T2",
+    "quiz_name":"quiz01",
+    "student":"Late Larry (late submission)",
+    "answers":[[1],[2],[1],[1,1,2]],
+    "time":"2023-01-02 23:59:59"},
+  "z0000005":
+    {"session":"90T2",
+    "quiz_name":"quiz01",
+    "student":"Johannes, teller of good jokes",
+    "answers":[[1],[2],[1],[1,2,3]],
+    "time":"1990-01-01 23:59:59"}
+}
