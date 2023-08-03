@@ -535,6 +535,7 @@ parseJSON = do
 parseJSONElm :: Parser (String,Data)
 parseJSONElm = do
   -- parse string key
+  whiteSpace
   key <- parseString
   -- parse `:`
   whiteSpace
@@ -1027,10 +1028,25 @@ markQuestions (q:qs) (as:ass) = (markQuestion q as) + (markQuestions qs ass)
    The order of the lines is not important.
  -}
 marker :: String -> String -> Maybe String
-marker = error "TODO: implement marker"
--- marker quizStr submissionsStr = do
+-- marker = error "TODO: implement marker"
+marker quizStr submissionsStr = do
+  quiz <- runParser parseQuiz quizStr
+  submissions <- (runParser parseJSON submissionsStr) >>= toSubmissions
+  makeUpdateFile quiz submissions
+
+makeUpdateFile :: Quiz -> [(String, Submission)] -> Maybe String
+makeUpdateFile quiz [] = return ""
+makeUpdateFile quiz ((zid, sub):submissions) = do
+  let mark = markSubmission quiz sub
+  let quizNum = quizName sub
+  rest <- makeUpdateFile quiz submissions
+  return $ (zid ++ "|" ++ quizNum ++ "|" ++ (show mark) ++ "\n" ) ++ rest
 
 
+
+  -- zid from submission
+  -- quizNum from submission
+  -- result from markSubmission
 
 {- Use this to read a quiz key and submissions
    file from the file system, and print the
